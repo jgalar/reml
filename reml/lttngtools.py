@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 class LTTngToolsProject(Project):
     def __init__(self) -> None:
         self._name = "LTTng-tools"
-        self._git_url = "git@git.lttng.org:lttng-tools.git"
         super().__init__()
 
     @staticmethod

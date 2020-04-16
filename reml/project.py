@@ -7,10 +7,17 @@ import git
 import glob
 import tempfile
 import shutil
+import subprocess
+import jenkinsapi
+import requests
+import time
+import hashlib
+import os
 from enum import Enum
-from click import style, echo, confirm
+from click import style, echo, confirm, progressbar
 from datetime import date
 from typing import Optional
+import reml.config
 
 
 class ReleaseType(Enum):
@@ -68,7 +75,7 @@ class Version:
         return self._rc
 
 
-class Release:
+class ReleaseDescriptor:
     def __init__(self, project_name: str, version: Version, path: str) -> None:
         self._project_name = project_name
         self._version = version
@@ -87,11 +94,84 @@ class Release:
         return self._path
 
 
+class ReleaseArtifact:
+    def __init__(self, name: str, url: str) -> None:
+        self._name = name
+        self._url = url
+        self._dir = tempfile.mkdtemp()
+
+        echo(
+            style("Fetching ")
+            + style(self._name, fg="white", bold=True)
+            + style("..."),
+            nl=False,
+        )
+        remote = requests.get(self._url)
+        artifact_path = os.path.join(self._dir, self._name)
+        with open(artifact_path, "wb") as new_file:
+            new_file.write(remote.content)
+        echo(style("done!", fg="green"))
+
+        echo(
+            style("Hashing ") + style(self._name, fg="white", bold=True) + style("..."),
+            nl=False,
+        )
+        md5 = hashlib.md5()
+        sha1 = hashlib.sha1()
+        sha256 = hashlib.sha256()
+        with open(artifact_path, "rb") as tarball:
+            content = tarball.read()
+            md5.update(content)
+            sha1.update(content)
+            sha256.update(content)
+
+        with open(artifact_path + ".md5", "w") as md5file:
+            md5file.write("{}  {}\n".format(md5.hexdigest(), self._name))
+
+        with open(artifact_path + ".sha1", "w") as sha1file:
+            sha1file.write("{}  {}\n".format(sha1.hexdigest(), self._name))
+
+        with open(artifact_path + ".sha256", "w") as sha256file:
+            sha256file.write("{}  {}\n".format(sha256.hexdigest(), self._name))
+        echo(style("done!", fg="green"))
+
+        echo(
+            style("Signing ") + style(self._name, fg="white", bold=True) + style("..."),
+            nl=False,
+        )
+        subprocess.call(["gpg", "--armor", "-b", artifact_path])
+        echo(style("done!", fg="green"))
+
+    def upload(self, location: str) -> None:
+        echo(
+            style("Uploading artifacts... "),
+            nl=False,
+        )
+        for filename in os.listdir(self._dir):
+            if not filename.startswith(self._name):
+                continue
+            path = os.path.join(self._dir, filename)
+            subprocess.call(["rsync", path, location + "/"])
+        echo(style("done!", fg="green"))
+
+
 class Project:
     def __init__(self) -> None:
         self._repo = None
         self._workdir = tempfile.mkdtemp()
         self._repo_base_path = None
+        self._config = reml.config.get_project_config(self.name)
+
+        try:
+            self._git_urls = self._config["git_urls"]
+            if isinstance(self._git_urls, str):
+                self._git_urls = [self._git_urls]
+            self._ci_url = self._config["ci_url"]
+            self._ci_user = self._config["ci_user"]
+            self._ci_token = self._config["ci_token"]
+            self._upload_location = self._config["upload_location"]
+        except KeyError as e:
+            raise reml.config.MissingConfigurationAttributeError(self.name, e.args[0])
 
     @property
     def name(self) -> str:
@@ -139,6 +219,11 @@ class Project:
     def _tag_from_version(version: Version) -> str:
         return "v" + str(version)
 
+    def _ci_release_job_name(self, version):
+        series = "{}.{}".format(version.major, version.minor)
+        branch_name = self._branch_name_from_series(series)
+        return "{}-{}-release".format(self.name.lower(), branch_name)
+
     def _update_version(self, new_version: Version) -> None:
         raise NotImplementedError()
 
@@ -147,10 +232,13 @@ class Project:
 
     def _clone_repo(self) -> None:
         echo("Cloning upstream {} repository... ".format(self.name), nl=False)
-        git.Git(self._workdir).clone(self._git_url)
+        git.Git(self._workdir).clone(self._git_urls[0])
         self._repo_base_path = glob.glob(self._workdir + "/*/")[0]
         self._repo = git.Repo(self._repo_base_path)
         echo(style("done!", fg="green"))
+
+        for git_url in self._git_urls[1:]:
+            self._repo.git.remote("set-url", "--add", "origin", git_url)
 
     def _branch_exists(self, branch_name: str) -> bool:
         for ref in self._repo.refs:
@@ -207,6 +295,71 @@ class Project:
         self._repo.git.push("origin", branch_name + ":" + branch_name, "--tags")
         echo(style("done!", fg="green"))
 
+    def _generate_artifact(self, version: Version) -> str:
+        job_name = self._ci_release_job_name(version)
+        server = jenkinsapi.jenkins.Jenkins(self._ci_url, self._ci_user, self._ci_token)
+        job = server.create_job(job_name, None)
+
+        echo(
+            style("Launching build job ")
+            + style(job_name, fg="white", bold=True)
+            + style("... "),
+            nl=False,
+        )
+        queue_item = job.invoke()
+        echo(style("done!", fg="green"))
+
+        echo(
+            style("Waiting for job ")
+            + style(job_name, fg="white", bold=True)
+            + style(" to be scheduled... "),
+            nl=False,
+        )
+        while True:
+            try:
+                queue_item.poll()
+                build = queue_item.get_build()
+                break
+            except jenkinsapi.custom_exceptions.NotBuiltYet:
+                time.sleep(1)
+                continue
+        echo(style("done!", fg="green"))
+
+        estimated_duration_secs = int(build.get_estimated_duration())
+
+        delay_secs = 10
+        with progressbar(
+            length=estimated_duration_secs,
+            show_eta=True,
+            label="Building on " + build.get_slave(),
+        ) as progress:
+            while build.is_running():
+                time.sleep(delay_secs)
+                progress.update(delay_secs)
+
+        build_status = build.poll()
+        if build_status["result"] != "SUCCESS":
+            echo(style("Build failed 🤯", fg="red", bold=True))
+            raise AbortedRelease()
+
+        if len(build.get_artifact_dict()) != 1:
+            echo(
+                style(
+                    "Unexpected artifacts generated by the release job 🤯",
+                    fg="red",
+                    bold=True,
+                )
+            )
+            echo("Artifacts: " + str(build.get_artifact_dict()))
+            raise AbortedRelease()
+
+        echo(
+            style("Getting artifact URL... "), nl=False,
+        )
+        artifact = next(iter(build.get_artifacts()))
+        echo(style(artifact.url, fg="white", bold=True))
+        return ReleaseArtifact(artifact.filename, artifact.url)
+
     def release(
         self, series: str, tagline: str, dry: bool, release_type: ReleaseType
     ) -> str:
@@ -217,7 +370,6 @@ class Project:
 
         branch_name = self._branch_name_from_series(series)
         branch_exists = self._branch_exists(branch_name)
-        create_new_branch = not branch_exists
 
         if not branch_exists:
             echo(
@@ -266,7 +418,7 @@ class Project:
 
         if (
             confirm(
-                style("Publish branch ")
+                style("Publish tree at ")
                 + style(self._repo_base_path, fg="white", bold=True)
                 + style(" ?")
             )
@@ -276,4 +428,7 @@ class Project:
         else:
             raise AbortedRelease()
 
-        return Release(self.name, new_version, self._repo_base_path)
+        artifact = self._generate_artifact(new_version)
+        artifact.upload(self._upload_location)
+
+        return ReleaseDescriptor(self.name, new_version, self._repo_base_path)

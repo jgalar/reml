@@ -13,7 +13,10 @@ logger = logging.getLogger(__name__)
 class BabeltraceProject(Project):
     def __init__(self) -> None:
         self._name = "Babeltrace"
-        self._git_url = "https://github.com/efficios/babeltrace.git"
+        self._git_urls = []
+        self._ci_url = None
+        self._ci_user = None
+        self._ci_token = None
         super().__init__()
 
     @staticmethod

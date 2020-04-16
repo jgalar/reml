@@ -16,6 +16,7 @@ from reml.project import (
     ReleaseType,
     AbortedRelease,
 )
+from reml.config import MissingConfigurationError, MissingConfigurationAttributeError
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,14 +61,31 @@ def main(
         echo(style("Preparing release without a tagline 😞", fg="yellow", bold=True))
 
     if project_name.lower() == "lttng-tools":
-        project = LTTngToolsProject()
+        project_class = LTTngToolsProject
     elif project_name.lower() == "babeltrace":
-        project = BabeltraceProject()
+        project_class = BabeltraceProject
     else:
         echo(
-            style("Unsupported project ", fg="red")
+            style("🤦‍ Unsupported project ", fg="red")
             + style(project_name, fg="white", bold=True),
             err=True,
+        )
+        sys.exit(1)
+
+    try:
+        project = project_class()
+    except MissingConfigurationError as e:
+        echo(
+            style("🤬 Configuration file was not found at ", fg="red", bold=True)
+            + style(e.expected_path, fg="white", bold=True)
+        )
+        sys.exit(1)
+    except MissingConfigurationAttributeError as e:
+        echo(
+            style("🤦‍ Missing configuration attribute ", fg="red", bold=True)
+            + style(e.attribute, fg="white", bold=True)
+            + style(" for project ", fg="red", bold=True)
+            + style(e.project_name, fg="white", bold=True)
         )
         sys.exit(1)
 
@@ -80,7 +98,7 @@ def main(
         )
     except InvalidReleaseSeriesError as e:
         echo(
-            style("Unexpected release series ", fg="red", bold=True)
+            style("😬 Unexpected release series ", fg="red", bold=True)
             + style(series, fg="white", bold=True)
             + style(" for project ", fg="red", bold=True)
             + style(project_name, fg="white", bold=True)
@@ -88,7 +106,7 @@ def main(
         sys.exit(1)
     except InvalidReleaseTypeError as e:
         echo(
-            style("Invalid release type ", fg="red", bold=True)
+            style("😬 Invalid release type ", fg="red", bold=True)
             + style(type, fg="white", bold=True)
             + style(" for release series ", fg="red", bold=True)
             + style(series, fg="white", bold=True)
