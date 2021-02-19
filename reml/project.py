@@ -110,7 +110,7 @@ class ReleaseArtifact:
         artifact_path = os.path.join(self._dir, self._name)
         with open(artifact_path, "wb") as new_file:
             new_file.write(remote.content)
-        echo(style("done!", fg="green"))
+        echo(style("✓", fg="green", bold=True))
 
         echo(
             style("Hashing ") + style(self._name, fg="white", bold=True) + style("..."),
@@ -133,14 +133,14 @@ class ReleaseArtifact:
 
         with open(artifact_path + ".sha256", "w") as sha256file:
             sha256file.write("{}  {}\n".format(sha256.hexdigest(), self._name))
-        echo(style("done!", fg="green"))
+        echo(style("✓", fg="green", bold=True))
 
         echo(
             style("Signing ") + style(self._name, fg="white", bold=True) + style("..."),
             nl=False,
         )
         subprocess.call(["gpg", "--armor", "-b", artifact_path])
-        echo(style("done!", fg="green"))
+        echo(style("✓", fg="green", bold=True))
 
     def upload(self, location: str) -> None:
         echo(
@@ -152,7 +152,7 @@ class ReleaseArtifact:
                 continue
             path = os.path.join(self._dir, filename)
             subprocess.call(["rsync", path, location + "/"])
-        echo(style("done!", fg="green"))
+        echo(style("✓", fg="green", bold=True))
 
 
 class Project:
@@ -235,7 +235,7 @@ class Project:
         git.Git(self._workdir).clone(self._git_urls[0])
         self._repo_base_path = glob.glob(self._workdir + "/*/")[0]
         self._repo = git.Repo(self._repo_base_path)
-        echo(style("done!", fg="green"))
+        echo(style("✓", fg="green", bold=True))
 
         for git_url in self._git_urls[1:]:
             self._repo.git.remote("set-url", "--add", "origin", git_url)
@@ -288,12 +288,12 @@ class Project:
                 modified.write(entry)
             modified.write("\n")
             modified.write(contents)
-        echo(style("done!", fg="green"))
+        echo(style("✓", fg="green", bold=True))
 
     def _publish(self, branch_name: str) -> None:
         echo("Pushing new release... ".format(self.name), nl=False)
         self._repo.git.push("origin", branch_name + ":" + branch_name, "--tags")
-        echo(style("done!", fg="green"))
+        echo(style("✓", fg="green", bold=True))
 
     def _generate_artifact(self, version: Version) -> str:
         job_name = self._ci_release_job_name(version)
@@ -307,7 +307,7 @@ class Project:
             nl=False,
         )
         queue_item = job.invoke()
-        echo(style("done!", fg="green"))
+        echo(style("✓", fg="green", bold=True))
 
         echo(
             style("Waiting for job ")
@@ -323,7 +323,7 @@ class Project:
             except jenkinsapi.custom_exceptions.NotBuiltYet:
                 time.sleep(1)
                 continue
-        echo(style("done!", fg="green"))
+        echo(style("✓", fg="green", bold=True))
 
         estimated_duration_secs = int(build.get_estimated_duration())
 
