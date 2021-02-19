@@ -297,15 +297,29 @@ class Project:
 
     def _generate_artifact(self, version: Version) -> str:
         job_name = self._ci_release_job_name(version)
-        server = jenkinsapi.jenkins.Jenkins(self._ci_url, self._ci_user, self._ci_token)
-        job = server.create_job(job_name, None)
-
         echo(
             style("Launching build job ")
             + style(job_name, fg="white", bold=True)
             + style("... "),
             nl=False,
         )
+        server = jenkinsapi.jenkins.Jenkins(self._ci_url, self._ci_user, self._ci_token)
+
+        # jenkinsapi 0.3.11 does not handle timeouts nor does it allow
+        # retries. This may be changed in 0.3.12.
+        # See: https://github.com/pycontribs/jenkinsapi/issues/767
+        #
+        # Meanwhile, simply retry and hope for the best.
+        create_job_try_count = 20
+        while create_job_try_count >= 0:
+            try:
+                job = server.create_job(job_name, None)
+                break
+            except requests.exceptions.ConnectionError:
+                create_job_try_count = create_job_try_count - 1
+                if create_job_try_count == 0:
+                    raise
+
         queue_item = job.invoke()
         echo(style("✓", fg="green", bold=True))
 
