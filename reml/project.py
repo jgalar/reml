@@ -219,6 +219,18 @@ class Project:
     def _tag_from_version(version: Version) -> str:
         return "v" + str(version)
 
+    @staticmethod
+    def _is_build_running(build: jenkinsapi.build) -> bool:
+        build_status_update_try_count = 20
+        while build_status_update_try_count >= 0:
+            try:
+                is_running = build.is_running()
+                return is_running
+            except requests.exceptions.ConnectionError:
+                build_status_update_try_count = build_status_update_try_count - 1
+                if build_status_update_try_count == 0:
+                    raise
+
     def _ci_release_job_name(self, version):
         series = "{}.{}".format(version.major, version.minor)
         branch_name = self._branch_name_from_series(series)
@@ -347,7 +359,7 @@ class Project:
             show_eta=True,
             label="Building on " + build.get_slave(),
         ) as progress:
-            while build.is_running():
+            while self._is_build_running(build):
                 time.sleep(delay_secs)
                 progress.update(delay_secs)
 
