@@ -341,7 +341,7 @@ class Project:
 
         estimated_duration_secs = int(build.get_estimated_duration())
 
-        delay_secs = 10
+        delay_secs = 1
         with progressbar(
             length=estimated_duration_secs,
             show_eta=True,
