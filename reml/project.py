@@ -222,7 +222,7 @@ class Project:
     def _ci_release_job_name(self, version):
         series = "{}.{}".format(version.major, version.minor)
         branch_name = self._branch_name_from_series(series)
-        return "{}-{}-release".format(self.name.lower(), branch_name)
+        return "{}_v{}_release".format(self.name.lower(), series)
 
     def _update_version(self, new_version: Version) -> None:
         raise NotImplementedError()
