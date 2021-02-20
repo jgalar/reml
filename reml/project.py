@@ -379,7 +379,8 @@ class Project:
             raise AbortedRelease()
 
         echo(
-            style("Getting artifact URL... "), nl=False,
+            style("Getting artifact URL... "),
+            nl=False,
         )
         artifact = next(iter(build.get_artifacts()))
         echo(style(artifact.url, fg="white", bold=True))
