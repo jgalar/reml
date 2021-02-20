@@ -358,9 +358,12 @@ class Project:
             show_eta=True,
             label="Building on " + build.get_slave(),
         ) as progress:
+            last_update_time = time.monotonic()
             while self._is_build_running(build):
                 time.sleep(delay_secs)
-                progress.update(delay_secs)
+                now = time.monotonic()
+                progress.update(now - last_update_time)
+                last_update_time = now
 
         build_status = build.poll()
         if build_status["result"] != "SUCCESS":
