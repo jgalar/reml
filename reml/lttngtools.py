@@ -13,12 +13,13 @@ logger = logging.getLogger(__name__)
 class LTTngToolsProject(Project):
     def __init__(self) -> None:
         self._name = "LTTng-tools"
+        self._changelog_project_name = "lttng-tools"
         super().__init__()
 
     @staticmethod
     def _is_release_series_valid(series: str) -> bool:
         try:
-            tokenized_version = series.split('.')
+            tokenized_version = series.split(".")
             if len(tokenized_version) != 2:
                 return False
             if int(tokenized_version[0]) != 2:
@@ -45,8 +46,10 @@ class LTTngToolsProject(Project):
             new.write(contents[span[1] :])
 
     def _commit_and_tag(self, new_version: Version) -> None:
-        commit_msg = "Update version to v{}".format(str(new_version))
+        self._update_version(new_version)
         self._repo.git.add("ChangeLog", "configure.ac")
+
+        commit_msg = "Update version to v{}".format(str(new_version))
         self._repo.git.commit("-s", "-m" + commit_msg)
         self._repo.git.tag(
             "-s",

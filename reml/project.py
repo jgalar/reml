@@ -46,7 +46,9 @@ class AbortedRelease(Exception):
 
 
 class Version:
-    def __init__(self, major: int, minor: int, patch: int, rc: Optional[int]) -> None:
+    def __init__(
+        self, major: int, minor: int, patch: int, rc: Optional[int] = None
+    ) -> None:
         self._major = major
         self._minor = minor
         self._patch = patch
@@ -177,6 +179,10 @@ class Project:
     def name(self) -> str:
         return self._name
 
+    @property
+    def changelog_project_name(self) -> str:
+        return getattr(self, "_changelog_project_name", self.name)
+
     @staticmethod
     def _is_release_series_valid(series: str) -> bool:
         raise NotImplementedError()
@@ -279,7 +285,11 @@ class Project:
         today = date.today()
 
         title = "{}-{:02d}-{:02d} {} {}".format(
-            today.year, today.month, today.day, self.name.lower(), str(new_version)
+            today.year,
+            today.month,
+            today.day,
+            self.changelog_project_name,
+            str(new_version),
         )
         if tagline:
             title = title + " ({})".format(tagline)
@@ -439,7 +449,6 @@ class Project:
             )
 
         self._update_changelog(new_version, tagline)
-        self._update_version(new_version)
         self._commit_and_tag(new_version)
 
         if not branch_exists:
