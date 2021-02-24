@@ -17,7 +17,17 @@ class LTTngToolsProject(Project):
 
     @staticmethod
     def _is_release_series_valid(series: str) -> bool:
-        return True
+        try:
+            tokenized_version = series.split('.')
+            if len(tokenized_version) != 2:
+                return False
+            if int(tokenized_version[0]) != 2:
+                return False
+
+            return True
+        except:
+            # Any error is the result of an unexpected release series format anyhow.
+            return False
 
     def _update_version(self, new_version: Version) -> None:
         with open(self._repo_base_path + "/configure.ac", "r") as original:
