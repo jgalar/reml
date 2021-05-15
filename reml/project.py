@@ -193,7 +193,7 @@ class Project:
 
     @staticmethod
     def _version_from_tag(tag_name: str) -> Version:
-        exp = re.compile(r"v(\d*)\.(\d*)\.(\d*)")
+        exp = re.compile(r"v(\d*)\.(\d*)\.(\d*)$")
         exp_rc = re.compile(r"v(\d*)\.(\d*)\.(\d*)-rc(\d*)")
         rc = None
 
