@@ -436,8 +436,11 @@ class Project:
                 patch = 0
                 rc = latest_version.rc + 1
             else:
+                if latest_version.rc is not None:
+                    patch = 0
+                else:
+                    patch = latest_version.patch + 1
                 minor = latest_version.minor
-                patch = latest_version.patch + 1
                 rc = None
 
             new_version = Version(major, minor, patch, rc)
