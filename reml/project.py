@@ -35,6 +35,11 @@ class InvalidReleaseTypeError(Exception):
         super().__init__()
 
 
+class InvalidReleaseRebuildOptionError(Exception):
+    def __init__(self) -> None:
+        super().__init__()
+
+
 class UnexpectedTagNameError(Exception):
     def __init__(self) -> None:
         super().__init__()
@@ -400,7 +405,12 @@ class Project:
         return ReleaseArtifact(artifact.filename, artifact.url)
 
     def release(
-        self, series: str, tagline: str, dry: bool, release_type: ReleaseType
+        self,
+        series: str,
+        tagline: str,
+        dry: bool,
+        rebuild: bool,
+        release_type: ReleaseType,
     ) -> str:
         if not self._is_release_series_valid(series):
             raise InvalidReleaseSeriesError()
@@ -410,7 +420,18 @@ class Project:
         branch_name = self._branch_name_from_series(series)
         branch_exists = self._branch_exists(branch_name)
 
-        if not branch_exists:
+        if rebuild:
+            if not branch_exists:
+                raise InvalidReleaseRebuildOptionError()
+
+            self._set_current_branch(branch_name, False)
+            latest_tag_name = self._latest_tag_name()
+            release_version = self._version_from_tag(latest_tag_name)
+            echo(
+                style("Rebuilding artifact of version ")
+                + style(str(release_version), fg="white", bold=True)
+            )
+        elif not branch_exists:
             echo(
                 "Branch "
                 + style(branch_name, fg="white", bold=True)
@@ -419,8 +440,10 @@ class Project:
             if release_type != ReleaseType.RELEASE_CANDIDATE:
                 raise InvalidReleaseTypeError()
 
-            new_version = self._version_from_series(series)
-            new_version = Version(new_version.major, new_version.minor, 0, 1)
+            release_version = self._version_from_series(series)
+            release_version = Version(
+                release_version.major, release_version.minor, 0, 1
+            )
         else:
             echo(
                 "Branch "
@@ -443,33 +466,34 @@ class Project:
                 minor = latest_version.minor
                 rc = None
 
-            new_version = Version(major, minor, patch, rc)
+            release_version = Version(major, minor, patch, rc)
             echo(
                 style("Updating version from ")
                 + style(str(latest_version), fg="white", bold=True)
                 + style(" to ")
-                + style(str(new_version), fg="white", bold=True)
+                + style(str(release_version), fg="white", bold=True)
             )
 
-        self._update_changelog(new_version, tagline)
-        self._commit_and_tag(new_version)
+        if not rebuild:
+            self._update_changelog(release_version, tagline)
+            self._commit_and_tag(release_version)
 
-        if not branch_exists:
-            self._set_current_branch(branch_name, True)
+            if not branch_exists:
+                self._set_current_branch(branch_name, True)
 
-        if (
-            confirm(
-                style("Publish tree at ")
-                + style(self._repo_base_path, fg="white", bold=True)
-                + style(" ?")
-            )
-            and not dry
-        ):
-            self._publish(branch_name)
-        else:
-            raise AbortedRelease()
+            if (
+                confirm(
+                    style("Publish tree at ")
+                    + style(self._repo_base_path, fg="white", bold=True)
+                    + style(" ?")
+                )
+                and not dry
+            ):
+                self._publish(branch_name)
+            else:
+                raise AbortedRelease()
 
-        artifact = self._generate_artifact(new_version)
+        artifact = self._generate_artifact(release_version)
         artifact.upload(self._upload_location)
 
-        return ReleaseDescriptor(self.name, new_version, self._repo_base_path)
+        return ReleaseDescriptor(self.name, release_version, self._repo_base_path)

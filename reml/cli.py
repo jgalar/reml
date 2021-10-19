@@ -11,6 +11,7 @@ from click import echo, style
 from reml.lttngtools import LTTngToolsProject
 from reml.babeltrace2 import Babeltrace2Project
 from reml.project import (
+    InvalidReleaseRebuildOptionError,
     InvalidReleaseSeriesError,
     InvalidReleaseTypeError,
     ReleaseType,
@@ -50,14 +51,27 @@ logger = logging.getLogger(__name__)
 @click.option(
     "--tagline", default=None, help="tagline of the release to use in the ChangeLog"
 )
+@click.option(
+    "--rebuild",
+    default=None,
+    required=False,
+    is_flag=True,
+    help="don't create a new release; rebuild, sign, and upload the artifact of the latest tagged release",
+)
 def main(
-    project: str, series: str, type: str, tagline: str, dry: bool, args=None
+    project: str,
+    series: str,
+    type: str,
+    tagline: str,
+    dry: bool,
+    rebuild: bool,
+    args=None,
 ) -> None:
     logger.debug("Launching reml")
 
     project_name = project
 
-    if tagline is None:
+    if tagline is None and not rebuild:
         echo(style("Preparing release without a tagline 😞", fg="yellow", bold=True))
 
     if project_name.lower() == "lttng-tools":
@@ -94,6 +108,7 @@ def main(
             series,
             tagline,
             dry,
+            rebuild,
             ReleaseType.STABLE if type == "stable" else ReleaseType.RELEASE_CANDIDATE,
         )
     except InvalidReleaseSeriesError as e:
@@ -110,6 +125,14 @@ def main(
             + style(type, fg="white", bold=True)
             + style(" for release series ", fg="red", bold=True)
             + style(series, fg="white", bold=True)
+        )
+        sys.exit(1)
+    except InvalidReleaseRebuildOptionError as e:
+        echo(
+            style(
+                "😬 Cannot rebuild the artifact of a release series that doesn't exist",
+                bold=True,
+            )
         )
         sys.exit(1)
     except AbortedRelease as e:
