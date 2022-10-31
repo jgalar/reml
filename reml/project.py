@@ -381,8 +381,17 @@ class Project:
                 last_update_time = now
 
         build_status = build.poll()
-        if build_status["result"] != "SUCCESS":
-            echo(style("Build failed 🤯", fg="red", bold=True))
+        # Allow release builds with warnings
+        if build_status["result"] not in ["SUCCESS", "UNSTABLE"]:
+            echo(
+                style(
+                    "Build failed with status \"{status}\" 🤯".format(
+                        status=build_status["result"]
+                    ),
+                    fg="red",
+                    bold=True,
+                )
+            )
             raise AbortedRelease()
 
         if len(build.get_artifact_dict()) != 1:

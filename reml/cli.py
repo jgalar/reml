@@ -10,6 +10,7 @@ from click import echo, style
 
 from reml.lttngtools import LTTngToolsProject
 from reml.babeltrace2 import Babeltrace2Project
+from reml.babeltrace1 import Babeltrace1Project
 from reml.project import (
     InvalidReleaseRebuildOptionError,
     InvalidReleaseSeriesError,
@@ -27,7 +28,9 @@ logger = logging.getLogger(__name__)
 @click.argument(
     "project",
     required=True,
-    type=click.Choice(["lttng-tools", "babeltrace2"], case_sensitive=False),
+    type=click.Choice(
+        ["lttng-tools", "babeltrace2", "babeltrace1"], case_sensitive=False
+    ),
 )
 @click.option(
     "--type",
@@ -78,6 +81,8 @@ def main(
         project_class = LTTngToolsProject
     elif project_name.lower() == "babeltrace2":
         project_class = Babeltrace2Project
+    elif project_name.lower() == "babeltrace1":
+        project_class = Babeltrace1Project
     else:
         echo(
             style("🤦‍ Unsupported project ", fg="red")
