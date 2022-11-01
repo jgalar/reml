@@ -2,8 +2,12 @@
 #
 # Copyright (c) 2020 Jérémie Galarneau <jeremie.galarneau@gmail.com>
 
-import sys
 import logging
+
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
+
+import sys
 import click
 
 from click import echo, style
@@ -19,9 +23,6 @@ from reml.project import (
     AbortedRelease,
 )
 from reml.config import MissingConfigurationError, MissingConfigurationAttributeError
-
-logging.basicConfig(level=logging.WARN)
-logger = logging.getLogger(__name__)
 
 
 @click.command()
