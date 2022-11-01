@@ -20,7 +20,7 @@ from reml.project import (
 )
 from reml.config import MissingConfigurationError, MissingConfigurationAttributeError
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARN)
 logger = logging.getLogger(__name__)
 
 
