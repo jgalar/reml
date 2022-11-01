@@ -52,13 +52,11 @@ class Babeltrace1Project(Project):
     def _commit_and_tag(self, new_version: Version) -> None:
         commit_msg = "Update version to v{version}".format(version=str(new_version))
         self._repo.git.add("ChangeLog")
+        self._update_version(new_version)
+        self._repo.git.add("configure.ac")
         self._repo.git.commit("-s", "-m" + commit_msg)
         self._repo.git.tag(
             "-s",
             "v{}".format(str(new_version)),
             "-m Version {}".format(str(new_version)),
-        )
-
-        new_version = Version(
-            new_version.major, new_version.minor, new_version.patch + 1
         )
