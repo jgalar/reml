@@ -38,14 +38,10 @@ class Babeltrace1Project(Project):
         with open(self._repo_base_path + "/configure.ac", "r") as original:
             original_contents = original.read()
 
-        new_version_string = "{major}.{minor}.{patch}".format(
-            major=new_version.major, minor=new_version.minor, patch=new_version.patch
-        )
-
         # Replace version in the AC_INIT(...) line
         new_contents = re.sub(
             r"^(AC_INIT\(\[babeltrace],\[)([^]]*)(],.*)$",
-            "\g<1>{new_version}\g<3>".format(new_version=new_version_string),
+            "\g<1>{version}\g<3>".format(version=str(new_version)),
             original_contents,
             flags=re.MULTILINE,
         )
@@ -54,9 +50,7 @@ class Babeltrace1Project(Project):
             new.write(new_contents)
 
     def _commit_and_tag(self, new_version: Version) -> None:
-        commit_msg = "Update version to v{major}.{minor}.{patch}".format(
-            major=new_version.major, minor=new_version.minor, patch=new_version.patch
-        )
+        commit_msg = "Update version to v{version}".format(version=str(new_version))
         self._repo.git.add("ChangeLog")
         self._repo.git.commit("-s", "-m" + commit_msg)
         self._repo.git.tag(
