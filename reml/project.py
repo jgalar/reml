@@ -382,7 +382,7 @@ class Project:
         if build_status["result"] not in ["SUCCESS", "UNSTABLE"]:
             echo(
                 style(
-                    "Build failed with status \"{status}\" 🤯".format(
+                    'Build failed with status "{status}" 🤯'.format(
                         status=build_status["result"]
                     ),
                     fg="red",
