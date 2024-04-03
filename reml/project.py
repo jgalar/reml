@@ -16,8 +16,24 @@ import os
 from enum import Enum
 from click import style, echo, confirm, progressbar
 from datetime import date
-from typing import Optional
+from typing import Optional, List
 import reml.config
+
+
+def _run_cmd_confirm_on_failure(args: List[str]) -> None:
+    run_cmd = True
+
+    while run_cmd:
+        try:
+            subprocess.check_call(args)
+            return
+        except subprocess.CalledProcessError as e:
+            run_cmd = confirm(
+                style("💣 Failed to run ", bold=True, fg="red")
+                + "'{}' (returned {})".format(" ".join(args), e.returncode),
+                default=True,
+                show_default=True,
+            )
 
 
 class ReleaseType(Enum):
@@ -143,7 +159,7 @@ class ReleaseArtifact:
             style("Signing ") + style(self._name, fg="white", bold=True) + style("..."),
             nl=False,
         )
-        subprocess.call(["gpg", "--armor", "-b", artifact_path])
+        _run_cmd_confirm_on_failure(["gpg", "--armor", "-b", artifact_path])
         echo(style("✓", fg="green", bold=True))
 
     def upload(self, location: str) -> None:
@@ -155,7 +171,7 @@ class ReleaseArtifact:
             if not filename.startswith(self._name):
                 continue
             path = os.path.join(self._dir, filename)
-            subprocess.call(["rsync", path, location + "/"])
+            _run_cmd_confirm_on_failure(["rsync", path, location + "/"])
         echo(style("✓", fg="green", bold=True))
 
 
