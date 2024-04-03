@@ -6,8 +6,8 @@ authors = ["Jérémie Galarneau <jeremie.galarneau@efficios.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.9"
-black = "^20.8b1"
-click = "^7.1.2"
+black = "^24.3.0"
+click = "^8.1.7"
 GitPython = "^3.1.41"
 jenkinsapi = "^0.3.11"
 

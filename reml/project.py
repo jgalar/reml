@@ -3,6 +3,7 @@
 # Copyright (c) 2020 Jérémie Galarneau <jeremie.galarneau@gmail.com>
 
 import re
+
 import git
 import glob
 import tempfile
