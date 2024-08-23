@@ -10,6 +10,7 @@ black = "^24.3.0"
 click = "^8.1.7"
 GitPython = "^3.1.41"
 jenkinsapi = "^0.3.11"
+github3-py = "^4.0.1"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
