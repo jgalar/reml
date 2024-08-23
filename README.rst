@@ -28,6 +28,24 @@ Features
 
 * TODO
 
+Usage
+-----
+
+Create a configuration file for the project(s) at `~/.config/reml/reml.conf`:
+
+```
+[project_name]
+  git_urls=...
+  ci_url=...
+  ci_user=...
+  ci_token=...
+  github_user=...
+  github_token=...
+  upload_location=...
+```
+
+To create a GitHub access token, please refer to [their documentation](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
+
 Credits
 -------
 
