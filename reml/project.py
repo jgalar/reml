@@ -119,7 +119,7 @@ class ReleaseDescriptor:
 
 
 class ReleaseArtifact:
-    def __init__(self, artifact: jenkinsapi.artifact.Artifact) -> None:
+    def __init__(self, artifact: jenkinsapi.artifact.Artifact, no_sign: bool) -> None:
         self._name = artifact.filename
         self._dir = tempfile.mkdtemp()
 
@@ -156,12 +156,15 @@ class ReleaseArtifact:
             sha256file.write("{}  {}\n".format(sha256.hexdigest(), self._name))
         echo(style("✓", fg="green", bold=True))
 
-        echo(
-            style("Signing ") + style(self._name, fg="white", bold=True) + style("..."),
-            nl=False,
-        )
-        _run_cmd_confirm_on_failure(["gpg", "--armor", "-b", artifact_path])
-        echo(style("✓", fg="green", bold=True))
+        if not no_sign:
+            echo(
+                style("Signing ")
+                + style(self._name, fg="white", bold=True)
+                + style("..."),
+                nl=False,
+            )
+            _run_cmd_confirm_on_failure(["gpg", "--armor", "-b", artifact_path])
+            echo(style("✓", fg="green", bold=True))
 
     def upload(self, location: str) -> None:
         echo(
@@ -263,7 +266,7 @@ class Project:
     def _update_version(self, new_version: Version) -> None:
         raise NotImplementedError()
 
-    def _commit_and_tag(self, new_version: Version) -> None:
+    def _commit_and_tag(self, new_version: Version, no_sign: bool) -> None:
         raise NotImplementedError()
 
     def _clone_repo(self) -> None:
@@ -335,7 +338,7 @@ class Project:
         self._repo.git.push("origin", branch_name + ":" + branch_name, "--tags")
         echo(style("✓", fg="green", bold=True))
 
-    def _generate_artifact(self, version: Version) -> str:
+    def _generate_artifact(self, version: Version, no_sign: bool) -> str:
         job_name = self._ci_release_job_name(version)
         echo(
             style("Launching build job ")
@@ -429,7 +432,7 @@ class Project:
 
             raise AbortedRelease()
 
-        return ReleaseArtifact(release_tarball_artifact)
+        return ReleaseArtifact(release_tarball_artifact, no_sign)
 
     def release(
         self,
@@ -438,6 +441,7 @@ class Project:
         dry: bool,
         rebuild: bool,
         release_type: ReleaseType,
+        no_sign: bool,
     ) -> str:
         if not self._is_release_series_valid(series):
             raise InvalidReleaseSeriesError()
@@ -503,7 +507,7 @@ class Project:
 
         if not rebuild:
             self._update_changelog(release_version, tagline)
-            self._commit_and_tag(release_version)
+            self._commit_and_tag(release_version, no_sign)
 
             if not branch_exists:
                 self._set_current_branch(branch_name, True)
@@ -520,7 +524,7 @@ class Project:
             else:
                 raise AbortedRelease()
 
-        artifact = self._generate_artifact(release_version)
+        artifact = self._generate_artifact(release_version, no_sign)
         artifact.upload(self._upload_location)
 
         return ReleaseDescriptor(self.name, release_version, self._repo_base_path)

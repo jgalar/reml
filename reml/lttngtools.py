@@ -45,14 +45,14 @@ class LTTngToolsProject(Project):
             )
             new.write(contents[span[1] :])
 
-    def _commit_and_tag(self, new_version: Version) -> None:
+    def _commit_and_tag(self, new_version: Version, no_sign: bool) -> None:
         self._update_version(new_version)
         self._repo.git.add("ChangeLog", "configure.ac")
 
         commit_msg = "Update version to v{}".format(str(new_version))
-        self._repo.git.commit("-s", "-m" + commit_msg)
+        self._repo.git.commit("-s" if not no_sign else "", "-m" + commit_msg)
         self._repo.git.tag(
-            "-s",
+            "-s" if not no_sign else "",
             "v{}".format(str(new_version)),
             "-m Version {}".format(str(new_version)),
         )

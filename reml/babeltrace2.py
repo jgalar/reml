@@ -70,15 +70,15 @@ class Babeltrace2Project(Project):
             flags=re.MULTILINE,
         ).group(1)
 
-    def _commit_and_tag(self, new_version: Version) -> None:
+    def _commit_and_tag(self, new_version: Version, no_sign: bool) -> None:
         release_name = self._get_release_name()
         commit_msg = 'Release: Babeltrace {}.{}.{} "{}"'.format(
             new_version.major, new_version.minor, new_version.patch, release_name
         )
         self._repo.git.add("ChangeLog")
-        self._repo.git.commit("-s", "-m" + commit_msg)
+        self._repo.git.commit("-s" if not no_sign else "", "-m" + commit_msg)
         self._repo.git.tag(
-            "-s",
+            "-s" if not no_sign else "",
             "v{}".format(str(new_version)),
             "-m Version {}".format(str(new_version)),
         )
@@ -89,4 +89,4 @@ class Babeltrace2Project(Project):
         commit_msg = "Update working version to Babeltrace v{}".format(str(new_version))
         self._update_version(new_version)
         self._repo.git.add("configure.ac")
-        self._repo.git.commit("-s", "-m" + commit_msg)
+        self._repo.git.commit("-s" if not no_sign else "", "-m" + commit_msg)

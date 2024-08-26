@@ -62,6 +62,13 @@ from reml.config import MissingConfigurationError, MissingConfigurationAttribute
     is_flag=True,
     help="don't create a new release; rebuild, sign, and upload the artifact of the latest tagged release",
 )
+@click.option(
+    "--no-sign",
+    default=False,
+    required=False,
+    is_flag=True,
+    help="Do not sign commits or release artifacts. Useful for some types of testing",
+)
 def main(
     project: str,
     series: str,
@@ -69,6 +76,7 @@ def main(
     tagline: str,
     dry: bool,
     rebuild: bool,
+    no_sign: bool,
     args=None,
 ) -> None:
     logger.debug("Launching reml")
@@ -116,6 +124,7 @@ def main(
             dry,
             rebuild,
             ReleaseType.STABLE if type == "stable" else ReleaseType.RELEASE_CANDIDATE,
+            no_sign,
         )
     except InvalidReleaseSeriesError as e:
         echo(
