@@ -338,64 +338,77 @@ class Project:
         self._repo.git.push("origin", branch_name + ":" + branch_name, "--tags")
         echo(style("✓", fg="green", bold=True))
 
-    def _generate_artifact(self, version: Version, no_sign: bool) -> str:
+    def _generate_artifact(
+        self, version: Version, no_sign: bool, reuse_last_build_artifacts: bool
+    ) -> str:
         job_name = self._ci_release_job_name(version)
-        echo(
-            style("Launching build job ")
-            + style(job_name, fg="white", bold=True)
-            + style("... "),
-            nl=False,
-        )
         server = jenkinsapi.jenkins.Jenkins(self._ci_url, self._ci_user, self._ci_token)
+        if reuse_last_build_artifacts:
+            echo(
+                style("Getting last build job ")
+                + style(job_name, fg="white", bold=True)
+                + style("... "),
+                nl=False,
+            )
+            job = server[job_name]
+            build = job.get_last_good_build()
+            echo(style("✓", fg="green", bold=True))
+        else:
+            echo(
+                style("Launching build job ")
+                + style(job_name, fg="white", bold=True)
+                + style("... "),
+                nl=False,
+            )
 
-        # jenkinsapi 0.3.11 does not handle timeouts nor does it allow
-        # retries. This may be changed in 0.3.12.
-        # See: https://github.com/pycontribs/jenkinsapi/issues/767
-        #
-        # Meanwhile, simply retry and hope for the best.
-        create_job_try_count = 20
-        while create_job_try_count >= 0:
-            try:
-                job = server.create_job(job_name, None)
-                break
-            except requests.exceptions.ConnectionError:
-                create_job_try_count = create_job_try_count - 1
-                if create_job_try_count == 0:
-                    raise
+            # jenkinsapi 0.3.11 does not handle timeouts nor does it allow
+            # retries. This may be changed in 0.3.12.
+            # See: https://github.com/pycontribs/jenkinsapi/issues/767
+            #
+            # Meanwhile, simply retry and hope for the best.
+            create_job_try_count = 20
+            while create_job_try_count >= 0:
+                try:
+                    job = server.create_job(job_name, None)
+                    break
+                except requests.exceptions.ConnectionError:
+                    create_job_try_count = create_job_try_count - 1
+                    if create_job_try_count == 0:
+                        raise
 
-        queue_item = job.invoke()
-        echo(style("✓", fg="green", bold=True))
+            queue_item = job.invoke()
+            echo(style("✓", fg="green", bold=True))
 
-        echo(
-            style("Waiting for job ")
-            + style(job_name, fg="white", bold=True)
-            + style(" to be scheduled... "),
-            nl=False,
-        )
-        while True:
-            try:
-                queue_item.poll()
-                build = queue_item.get_build()
-                break
-            except jenkinsapi.custom_exceptions.NotBuiltYet:
-                time.sleep(1)
-                continue
-        echo(style("✓", fg="green", bold=True))
+            echo(
+                style("Waiting for job ")
+                + style(job_name, fg="white", bold=True)
+                + style(" to be scheduled... "),
+                nl=False,
+            )
+            while True:
+                try:
+                    queue_item.poll()
+                    build = queue_item.get_build()
+                    break
+                except jenkinsapi.custom_exceptions.NotBuiltYet:
+                    time.sleep(1)
+                    continue
+            echo(style("✓", fg="green", bold=True))
 
-        estimated_duration_secs = int(build.get_estimated_duration())
+            estimated_duration_secs = int(build.get_estimated_duration())
 
-        delay_secs = 1
-        with progressbar(
-            length=estimated_duration_secs,
-            show_eta=True,
-            label="Building on " + build.get_slave(),
-        ) as progress:
-            last_update_time = time.monotonic()
-            while self._is_build_running(build):
-                time.sleep(delay_secs)
-                now = time.monotonic()
-                progress.update(now - last_update_time)
-                last_update_time = now
+            delay_secs = 1
+            with progressbar(
+                length=estimated_duration_secs,
+                show_eta=True,
+                label="Building on " + build.get_slave(),
+            ) as progress:
+                last_update_time = time.monotonic()
+                while self._is_build_running(build):
+                    time.sleep(delay_secs)
+                    now = time.monotonic()
+                    progress.update(now - last_update_time)
+                    last_update_time = now
 
         build_status = build.poll()
         # Allow release builds with warnings
@@ -442,6 +455,7 @@ class Project:
         rebuild: bool,
         release_type: ReleaseType,
         no_sign: bool,
+        reuse_last_build_artifacts: bool,
     ) -> str:
         if not self._is_release_series_valid(series):
             raise InvalidReleaseSeriesError()
@@ -524,7 +538,9 @@ class Project:
             else:
                 raise AbortedRelease()
 
-        artifact = self._generate_artifact(release_version, no_sign)
+        artifact = self._generate_artifact(
+            release_version, no_sign, reuse_last_build_artifacts
+        )
         artifact.upload(self._upload_location)
 
         return ReleaseDescriptor(self.name, release_version, self._repo_base_path)
