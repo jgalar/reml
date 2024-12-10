@@ -6,12 +6,14 @@ import re
 
 import git
 import glob
+import mimetypes
 import tempfile
 import shutil
 import subprocess
 import jenkinsapi
 import requests
 import time
+import urllib
 import hashlib
 import os
 from enum import Enum
@@ -19,6 +21,8 @@ from click import style, echo, confirm, progressbar
 from datetime import date
 from typing import Optional, List
 import reml.config
+
+import github3
 
 
 def _run_cmd_confirm_on_failure(args: List[str]) -> None:
@@ -82,6 +86,9 @@ class Version:
             version_string = version_string + "-rc" + str(self._rc)
         return version_string
 
+    def series(self) -> str:
+        return "{}.{}".format(self._major, self._minor)
+
     @property
     def major(self) -> int:
         return self._major
@@ -119,7 +126,7 @@ class ReleaseDescriptor:
 
 
 class ReleaseArtifact:
-    def __init__(self, artifact: jenkinsapi.artifact.Artifact) -> None:
+    def __init__(self, artifact: jenkinsapi.artifact.Artifact, no_sign: bool) -> None:
         self._name = artifact.filename
         self._dir = tempfile.mkdtemp()
 
@@ -156,12 +163,15 @@ class ReleaseArtifact:
             sha256file.write("{}  {}\n".format(sha256.hexdigest(), self._name))
         echo(style("✓", fg="green", bold=True))
 
-        echo(
-            style("Signing ") + style(self._name, fg="white", bold=True) + style("..."),
-            nl=False,
-        )
-        _run_cmd_confirm_on_failure(["gpg", "--armor", "-b", artifact_path])
-        echo(style("✓", fg="green", bold=True))
+        if not no_sign:
+            echo(
+                style("Signing ")
+                + style(self._name, fg="white", bold=True)
+                + style("..."),
+                nl=False,
+            )
+            _run_cmd_confirm_on_failure(["gpg", "--armor", "-b", artifact_path])
+            echo(style("✓", fg="green", bold=True))
 
     def upload(self, location: str) -> None:
         echo(
@@ -173,6 +183,50 @@ class ReleaseArtifact:
                 continue
             path = os.path.join(self._dir, filename)
             _run_cmd_confirm_on_failure(["rsync", path, location + "/"])
+        echo(style("✓", fg="green", bold=True))
+
+    def upload_to_github(
+        self, gh: github3.repos.repo.Repository, urls: list[str], tag: str
+    ):
+        echo(style("Uploading artifacts to GitHub... "), nl=False)
+        mimetypes.init()
+        releases = []
+        for url in urls:
+            owner, repo_name = url.split(":")[1].split("/")
+            repo = gh.repository(owner, repo_name.rstrip(".git"))
+            release = repo.release_from_tag(tag)
+            if not release:
+                echo(
+                    style(
+                        "😱 Couldn't find release by tag `{}` at {}".format(
+                            repo.html_url, tag
+                        ),
+                        bold=True,
+                        fd="red",
+                    )
+                )
+                continue
+            releases.append(release)
+
+        for filename in os.listdir(self._dir):
+            if not filename.startswith(self._name):
+                continue
+            path = os.path.join(self._dir, filename)
+            content_type = mimetypes.guess_type(path)[0]
+            with open(path, "rb") as f:
+                for release in releases:
+                    for asset in release.assets():
+                        if asset.name == filename:
+                            asset.delete()
+                    release.upload_asset(
+                        (
+                            content_type
+                            if content_type is not None
+                            else "application/octet-stream"
+                        ),
+                        filename,
+                        f,
+                    )
         echo(style("✓", fg="green", bold=True))
 
 
@@ -190,6 +244,8 @@ class Project:
             self._ci_url = self._config["ci_url"]
             self._ci_user = self._config["ci_user"]
             self._ci_token = self._config["ci_token"]
+            self._github_user = self._config["github_user"]
+            self._github_token = self._config["github_token"]
             self._upload_location = self._config["upload_location"]
         except KeyError as e:
             raise reml.config.MissingConfigurationAttributeError(self.name, e.args[0])
@@ -201,6 +257,21 @@ class Project:
     @property
     def changelog_project_name(self) -> str:
         return getattr(self, "_changelog_project_name", self.name)
+
+    @property
+    def release_template(self) -> str:
+        return getattr(self, "_release_template", self.name)
+
+    def release_description(self, version: Version) -> Optional[str]:
+        descriptions = getattr(self, "_release_descriptions", None)
+        if descriptions is None:
+            return None
+        return descriptions.get(
+            str(version),
+            descriptions.get(
+                version.series(), descriptions.get(str(version.major), None)
+            ),
+        )
 
     @staticmethod
     def _is_release_series_valid(series: str) -> bool:
@@ -263,7 +334,10 @@ class Project:
     def _update_version(self, new_version: Version) -> None:
         raise NotImplementedError()
 
-    def _commit_and_tag(self, new_version: Version) -> None:
+    def _get_tag_str(self, version: Version) -> str:
+        raise NotImplementedError()
+
+    def _commit_and_tag(self, new_version: Version, no_sign: bool) -> None:
         raise NotImplementedError()
 
     def _clone_repo(self) -> None:
@@ -293,14 +367,7 @@ class Project:
     def _latest_tag_name(self) -> str:
         return self._repo.git.describe("--abbrev=0")
 
-    def _update_changelog(self, new_version: Version, tagline: str):
-        echo("Updating ChangeLog... ".format(self.name), nl=False)
-        latest_tag_name = self._latest_tag_name()
-        for ref in self._repo.refs:
-            if ref.name == latest_tag_name:
-                latest_tag_sha = ref.commit.hexsha
-                break
-
+    def _new_changelog_section(self, new_version: Version, tagline: str):
         today = date.today()
 
         title = "{}-{:02d}-{:02d} {} {}".format(
@@ -314,6 +381,12 @@ class Project:
             title = title + " ({})".format(tagline)
         title = title + "\n"
 
+        latest_tag_name = self._latest_tag_name()
+        for ref in self._repo.refs:
+            if ref.name == latest_tag_name:
+                latest_tag_sha = ref.commit.hexsha
+                break
+
         changelog_new_section = [title]
         for commit in self._repo.iter_commits():
             if commit.hexsha == latest_tag_sha:
@@ -321,6 +394,11 @@ class Project:
             entry = "\t* {}\n".format(commit.summary)
             changelog_new_section.append(entry)
 
+        return changelog_new_section
+
+    def _update_changelog(self, new_version: Version, tagline: str):
+        echo("Updating ChangeLog... ".format(self.name), nl=False)
+        changelog_new_section = self._new_changelog_section(new_version, tagline)
         with open(self._repo_base_path + "/ChangeLog", "r") as original:
             contents = original.read()
         with open(self._repo_base_path + "/ChangeLog", "w") as modified:
@@ -335,64 +413,129 @@ class Project:
         self._repo.git.push("origin", branch_name + ":" + branch_name, "--tags")
         echo(style("✓", fg="green", bold=True))
 
-    def _generate_artifact(self, version: Version) -> str:
+    def _get_release_body(
+        self,
+        repo: github3.repos.repo.Repository,
+        tagline: str,
+        version: Version,
+        tag: str,
+        previous_version: Version,
+        previous_tag: str,
+    ):
+        new_changelog_section = self._new_changelog_section(version, tagline)
+        body = self.release_template.format(
+            name=self.name,
+            changelog_project_name=self.changelog_project_name,
+            tagline=tagline,
+            tag=tag,
+            version=str(version),
+            series=version.series(),
+            previous_tag=previous_tag,
+            previous_version=previous_version,
+            repo_url=repo.html_url,
+            changelog="\n".join(new_changelog_section),
+            release_description=self.release_description(version),
+        )
+
+        print("Release notes\n\n{}\n\n".format(body))
+        if confirm(
+            "Would you like to edit the release notes printed above? (Opens in an external editor)?"
+        ):
+            with tempfile.NamedTemporaryFile("w+", encoding="utf-8") as f:
+                f.write(body)
+                f.flush()
+                if os.system("editor {}".format(f.name)) == 0:
+                    f.seek(0)
+                    body = f.read()
+        return body
+
+    def _create_github_release(
+        self,
+        repo: github3.repos.repo.Repository,
+        tag: str,
+        body: list[str],
+        prerelease: bool = False,
+    ) -> None:
+        echo(
+            "Creating new GitHub release at {repo_url}... ".format(
+                self.name, repo_url=repo.html_url
+            ),
+            nl=False,
+        )
+        repo.create_release(tag, name=tag, body=body, prerelease=prerelease)
+        echo(style("✓", fg="green", bold=True))
+
+    def _generate_artifact(
+        self, version: Version, no_sign: bool, reuse_last_build_artifacts: bool
+    ) -> str:
         job_name = self._ci_release_job_name(version)
-        echo(
-            style("Launching build job ")
-            + style(job_name, fg="white", bold=True)
-            + style("... "),
-            nl=False,
-        )
         server = jenkinsapi.jenkins.Jenkins(self._ci_url, self._ci_user, self._ci_token)
+        if reuse_last_build_artifacts:
+            echo(
+                style("Getting last build job ")
+                + style(job_name, fg="white", bold=True)
+                + style("... "),
+                nl=False,
+            )
+            job = server[job_name]
+            build = job.get_last_good_build()
+            echo(style("✓", fg="green", bold=True))
+        else:
+            echo(
+                style("Launching build job ")
+                + style(job_name, fg="white", bold=True)
+                + style("... "),
+                nl=False,
+            )
 
-        # jenkinsapi 0.3.11 does not handle timeouts nor does it allow
-        # retries. This may be changed in 0.3.12.
-        # See: https://github.com/pycontribs/jenkinsapi/issues/767
-        #
-        # Meanwhile, simply retry and hope for the best.
-        create_job_try_count = 20
-        while create_job_try_count >= 0:
-            try:
-                job = server.create_job(job_name, None)
-                break
-            except requests.exceptions.ConnectionError:
-                create_job_try_count = create_job_try_count - 1
-                if create_job_try_count == 0:
-                    raise
+            # jenkinsapi 0.3.11 does not handle timeouts nor does it allow
+            # retries. This may be changed in 0.3.12.
+            # See: https://github.com/pycontribs/jenkinsapi/issues/767
+            #
+            # Meanwhile, simply retry and hope for the best.
+            create_job_try_count = 20
+            while create_job_try_count >= 0:
+                try:
+                    job = server.create_job(job_name, None)
+                    break
+                except requests.exceptions.ConnectionError:
+                    create_job_try_count = create_job_try_count - 1
+                    if create_job_try_count == 0:
+                        raise
 
-        queue_item = job.invoke()
-        echo(style("✓", fg="green", bold=True))
+            queue_item = job.invoke()
+            echo(style("✓", fg="green", bold=True))
 
-        echo(
-            style("Waiting for job ")
-            + style(job_name, fg="white", bold=True)
-            + style(" to be scheduled... "),
-            nl=False,
-        )
-        while True:
-            try:
-                queue_item.poll()
-                build = queue_item.get_build()
-                break
-            except jenkinsapi.custom_exceptions.NotBuiltYet:
-                time.sleep(1)
-                continue
-        echo(style("✓", fg="green", bold=True))
+            echo(
+                style("Waiting for job ")
+                + style(job_name, fg="white", bold=True)
+                + style(" to be scheduled... "),
+                nl=False,
+            )
+            while True:
+                try:
+                    queue_item.poll()
+                    build = queue_item.get_build()
+                    break
+                except jenkinsapi.custom_exceptions.NotBuiltYet:
+                    time.sleep(1)
+                    continue
+            echo(style("✓", fg="green", bold=True))
 
-        estimated_duration_secs = int(build.get_estimated_duration())
+            estimated_duration_secs = int(build.get_estimated_duration())
 
-        delay_secs = 1
-        with progressbar(
-            length=estimated_duration_secs,
-            show_eta=True,
-            label="Building on " + build.get_slave(),
-        ) as progress:
-            last_update_time = time.monotonic()
-            while self._is_build_running(build):
-                time.sleep(delay_secs)
-                now = time.monotonic()
-                progress.update(now - last_update_time)
-                last_update_time = now
+            delay_secs = 1
+            with progressbar(
+                length=estimated_duration_secs,
+                show_eta=True,
+                label="Building on " + build.get_slave(),
+            ) as progress:
+                last_update_time = time.monotonic()
+                while self._is_build_running(build):
+                    time.sleep(delay_secs)
+                    now = time.monotonic()
+                    progress.update(now - last_update_time)
+                    last_update_time = now
 
         build_status = build.poll()
         # Allow release builds with warnings
@@ -429,7 +572,7 @@ class Project:
 
             raise AbortedRelease()
 
-        return ReleaseArtifact(release_tarball_artifact)
+        return ReleaseArtifact(release_tarball_artifact, no_sign)
 
     def release(
         self,
@@ -438,6 +581,8 @@ class Project:
         dry: bool,
         rebuild: bool,
         release_type: ReleaseType,
+        no_sign: bool,
+        reuse_last_build_artifacts: bool,
     ) -> str:
         if not self._is_release_series_valid(series):
             raise InvalidReleaseSeriesError()
@@ -501,9 +646,11 @@ class Project:
                 + style(str(release_version), fg="white", bold=True)
             )
 
+        gh = github3.login(self._github_user, token=self._github_token)
+        github_urls = [x for x in self._git_urls if x.find("github.com") != -1]
         if not rebuild:
             self._update_changelog(release_version, tagline)
-            self._commit_and_tag(release_version)
+            self._commit_and_tag(release_version, no_sign)
 
             if not branch_exists:
                 self._set_current_branch(branch_name, True)
@@ -520,7 +667,54 @@ class Project:
             else:
                 raise AbortedRelease()
 
-        artifact = self._generate_artifact(release_version)
+            if len(github_urls) > 0:
+                repos = []
+                for github_url in github_urls:
+                    owner, repo_name = github_url.split(":")[1].split("/")
+                    repo = gh.repository(owner, repo_name.rstrip(".git"))
+                    has_release = False
+                    for release in repo.releases():
+                        if release.tag_name == self._get_tag_str(release_version):
+                            has_release = True
+                            break
+                    if not has_release:
+                        repos.append(repo)
+
+            if (
+                len(repos) > 0
+                and not dry
+                and confirm(
+                    style("Create GitHub releases at ")
+                    + style(
+                        ", ".join([repo.html_url for repo in repos]),
+                        fg="white",
+                        bold=True,
+                    )
+                    + style("?")
+                )
+            ):
+                body = self._get_release_body(
+                    repos[0],
+                    tagline,
+                    release_version,
+                    self._get_tag_str(release_version),
+                    latest_version,
+                    self._get_tag_str(latest_version),
+                )
+                for repo in repos:
+                    self._create_github_release(
+                        repo,
+                        self._get_tag_str(release_version),
+                        body,
+                        release_type != ReleaseType.STABLE,
+                    )
+            else:
+                pass
+
+        artifact = self._generate_artifact(
+            release_version, no_sign, reuse_last_build_artifacts
+        )
         artifact.upload(self._upload_location)
+        artifact.upload_to_github(gh, github_urls, self._get_tag_str(release_version))
 
         return ReleaseDescriptor(self.name, release_version, self._repo_base_path)

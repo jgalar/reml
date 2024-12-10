@@ -49,14 +49,14 @@ class Babeltrace1Project(Project):
         with open(self._repo_base_path + "/configure.ac", "w") as new:
             new.write(new_contents)
 
-    def _commit_and_tag(self, new_version: Version) -> None:
+    def _commit_and_tag(self, new_version: Version, no_sign: bool) -> None:
         commit_msg = "Update version to v{version}".format(version=str(new_version))
         self._repo.git.add("ChangeLog")
         self._update_version(new_version)
         self._repo.git.add("configure.ac")
-        self._repo.git.commit("-s", "-m" + commit_msg)
+        self._repo.git.commit("-s" if not no_sign else "", "-m" + commit_msg)
         self._repo.git.tag(
-            "-s",
+            "-s" if not no_sign else "",
             "v{}".format(str(new_version)),
             "-m Version {}".format(str(new_version)),
         )

@@ -14,6 +14,42 @@ class Babeltrace2Project(Project):
     def __init__(self) -> None:
         self._name = "Babeltrace2"
         self._changelog_project_name = "Babeltrace"
+        self._release_template = """
+What's new since {changelog_project_name} {previous_version}?
+======================================
+
+Below is the full list of changes in this update:
+
+```
+{changelog}
+```
+
+Important links
+===============
+Babeltrace {version} tarball:
+    https://www.efficios.com/files/babeltrace/babeltrace2-{version}.tar.bz2
+
+Babeltrace website:
+    https://babeltrace.org
+
+Mailing list (for support and development):
+    `lttng-dev at lists.lttng.org`
+
+IRC channel:
+    `#lttng` on `irc.oftc.net`
+
+Git repository:
+    https://bugs.lttng.org/projects/babeltrace
+
+GitHub project:
+    https://github.com/efficios/babeltrace
+
+Continuous integration:
+    https://ci.lttng.org/view/Babeltrace/
+
+Code review:
+    https://review.lttng.org/q/project:babeltrace
+"""
         super().__init__()
 
     @staticmethod
@@ -70,23 +106,29 @@ class Babeltrace2Project(Project):
             flags=re.MULTILINE,
         ).group(1)
 
-    def _commit_and_tag(self, new_version: Version) -> None:
+    def _get_tag_str(self, version: Version) -> str:
+        return "v{}".format(str(version))
+
+    def _commit_and_tag(self, new_version: Version, no_sign: bool) -> None:
         release_name = self._get_release_name()
+        tag = self._get_tag_str(new_version)
         commit_msg = 'Release: Babeltrace {}.{}.{} "{}"'.format(
             new_version.major, new_version.minor, new_version.patch, release_name
         )
         self._repo.git.add("ChangeLog")
-        self._repo.git.commit("-s", "-m" + commit_msg)
+        self._repo.git.commit("-s" if not no_sign else "", "-m" + commit_msg)
         self._repo.git.tag(
-            "-s",
-            "v{}".format(str(new_version)),
+            "-s" if not no_sign else "",
+            tag,
             "-m Version {}".format(str(new_version)),
         )
 
         new_version = Version(
             new_version.major, new_version.minor, new_version.patch + 1
         )
-        commit_msg = "Update working version to Babeltrace v{}".format(str(new_version))
+        commit_msg = "Update working version to Babeltrace {}".format(
+            self._get_tag_str(new_version)
+        )
         self._update_version(new_version)
         self._repo.git.add("configure.ac")
-        self._repo.git.commit("-s", "-m" + commit_msg)
+        self._repo.git.commit("-s" if not no_sign else "", "-m" + commit_msg)
