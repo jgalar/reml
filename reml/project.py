@@ -667,18 +667,18 @@ class Project:
             else:
                 raise AbortedRelease()
 
-            if len(github_urls) > 0:
-                repos = []
-                for github_url in github_urls:
-                    owner, repo_name = github_url.split(":")[1].split("/")
-                    repo = gh.repository(owner, repo_name.rstrip(".git"))
-                    has_release = False
-                    for release in repo.releases():
-                        if release.tag_name == self._get_tag_str(release_version):
-                            has_release = True
-                            break
-                    if not has_release:
-                        repos.append(repo)
+        if len(github_urls) > 0:
+            repos = []
+            for github_url in github_urls:
+                owner, repo_name = github_url.split(":")[1].split("/")
+                repo = gh.repository(owner, repo_name.rstrip(".git"))
+                has_release = False
+                for release in repo.releases():
+                    if release.tag_name == self._get_tag_str(release_version):
+                        has_release = True
+                        break
+                if not has_release:
+                    repos.append(repo)
 
             if (
                 len(repos) > 0
