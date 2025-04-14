@@ -101,7 +101,7 @@ Code review:
             contents = original.read()
 
         return re.search(
-            r"^m4_define\(\[bt_version_name\], \[(.*)\]\)*$",
+            r"^m4_define\(\[bt_version_name\], \[\[(.*)\]\]\)*$",
             contents,
             flags=re.MULTILINE,
         ).group(1)
