@@ -100,11 +100,12 @@ Code review:
         with open(self._repo_base_path + "/configure.ac", "r") as original:
             contents = original.read()
 
-        return re.search(
-            r"^m4_define\(\[bt_version_name\], \[\[(.*)\]\]\)*$",
+        match = re.search(
+            r"^m4_define\(\[bt_version_name\], \[(?:\[)?([^\]]+)(?:\])?\]\)$",
             contents,
             flags=re.MULTILINE,
-        ).group(1)
+        )
+        return match.group(1)
 
     def _get_tag_str(self, version: Version) -> str:
         return "v{}".format(str(version))
