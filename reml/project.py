@@ -285,10 +285,17 @@ class Project:
     def _version_from_tag(tag_name: str) -> Version:
         exp = re.compile(r"v(\d*)\.(\d*)\.(\d*)$")
         exp_rc = re.compile(r"v(\d*)\.(\d*)\.(\d*)-rc(\d*)")
+        # Placeholder tag created when a stable branch is first branched off,
+        # before any release candidate is tagged. Treated as "rc 0" so that the
+        # next candidate becomes rc1 and a stable release becomes X.Y.0.
+        exp_pre = re.compile(r"v(\d*)\.(\d*)\.(\d*)-pre$")
         rc = None
 
         if exp.match(tag_name):
             major, minor, patch = exp.match(tag_name).groups()
+        elif exp_pre.match(tag_name):
+            major, minor, patch = exp_pre.match(tag_name).groups()
+            rc = 0
         else:
             if exp_rc.match(tag_name) is None:
                 raise UnexpectedTagNameError()
