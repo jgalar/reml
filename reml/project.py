@@ -19,7 +19,7 @@ import os
 from enum import Enum
 from click import style, echo, confirm, progressbar
 from datetime import date
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import reml.config
 
 import github3
@@ -403,16 +403,51 @@ class Project:
 
         return changelog_new_section
 
+    @staticmethod
+    def _split_changelog_header(contents: str) -> Tuple[str, str]:
+        """
+        Split the contents of a ChangeLog into its leading comment block
+        (e.g. an SPDX license header) and the remainder of the file. New
+        entries must be inserted between the two.
+        """
+        lines = contents.splitlines(keepends=True)
+
+        last_comment_line = -1
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                last_comment_line = index
+            elif stripped:
+                # First line of actual content: the header ends here.
+                break
+
+        if last_comment_line < 0:
+            return "", contents
+
+        header_end = last_comment_line + 1
+        # Absorb the blank lines separating the header from the entries.
+        while header_end < len(lines) and not lines[header_end].strip():
+            header_end += 1
+
+        return "".join(lines[:header_end]), "".join(lines[header_end:])
+
     def _update_changelog(self, new_version: Version, tagline: str):
-        echo("Updating ChangeLog... ".format(self.name), nl=False)
+        echo("Updating ChangeLog... ", nl=False)
         changelog_new_section = self._new_changelog_section(new_version, tagline)
         with open(self._repo_base_path + "/ChangeLog", "r") as original:
             contents = original.read()
+        header, entries = self._split_changelog_header(contents)
         with open(self._repo_base_path + "/ChangeLog", "w") as modified:
+            if header:
+                if not header.endswith("\n"):
+                    header = header + "\n"
+                if not header.endswith("\n\n"):
+                    header = header + "\n"
+                modified.write(header)
             for entry in changelog_new_section:
                 modified.write(entry)
             modified.write("\n")
-            modified.write(contents)
+            modified.write(entries)
         echo(style("✓", fg="green", bold=True))
 
     def _publish(self, branch_name: str) -> None:
